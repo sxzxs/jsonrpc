@@ -1,6 +1,13 @@
 #include "Socket.ahk"
 #include "Promise.ahk"
 #MaxThreads 255
+
+JSONMESSAGE_INVALID := 1
+JSONMESSAGE_REQUEST := 4
+JSONMESSAGE_RESPONSE := 8
+JSONMESSAGE_NOTIFICATION := 16
+JSONMESSAGE_ERROR := 32
+
 class JsonRpc
 {
     static ErrorCode := {NoError: 0, 
@@ -22,7 +29,7 @@ class JsonMessage
     __New() 
     {
         this.obj := {}
-        this.type := JsonMessage.type.Invalid
+        this.type := JSONMESSAGE_INVALID
     }
 
     static createRequest(method, params*)
@@ -48,7 +55,7 @@ class JsonMessage
             response.obj.id := this.obj.id
         }
         response.obj.result := result
-        response.type := JsonMessage.type.Response
+        response.type := JSONMESSAGE_RESPONSE
         return response
     }
 
@@ -59,7 +66,7 @@ class JsonMessage
         error.code := code
         error.message := message
         error.data := data
-        JsonMessage.type := JsonMessage.type.Error
+        JsonMessage.type := JSONMESSAGE_ERROR
         response.error := error
     }
 
@@ -70,7 +77,7 @@ class JsonMessage
         error.code := code
         error.message := message
         error.data := data
-        JsonMessage.type := JsonMessage.type.Error
+        JsonMessage.type := JSONMESSAGE_ERROR
         if(this.obj.HasProp('id'))
         {
             response.obj.id := this.obj.id
@@ -91,7 +98,7 @@ class JsonMessage
             if(message.has('result'))
             {
                 this.obj.result := message['result']
-                this.type := JsonMessage.type.Response
+                this.type := JSONMESSAGE_RESPONSE
             }
             else
             {
@@ -106,7 +113,7 @@ class JsonMessage
                     {
                         this.obj.params := []
                     }
-                    this.type := JsonMessage.type.Request
+                    this.type := JSONMESSAGE_REQUEST
                 }
             }
         }
@@ -127,7 +134,7 @@ class JsonMessage
 
     isValid()
     {
-        return this.type != JsonMessage.type.Invalid
+        return this.type != JSONMESSAGE_INVALID
     }
 
     params
@@ -233,10 +240,10 @@ class JsonRpcSocketServer extends Socket.Server
                     request := JsonMessage.fromObject(JSON.parse(recvText))
                     switch(request.type)
                     {
-                        case JsonMessage.type.Notification, JsonMessage.type.Request:
+                        case JSONMESSAGE_NOTIFICATION, JSONMESSAGE_REQUEST:
                             timer :=  ObjBindMethod(this, "handleData", socket, request)
                             SetTimer(timer, -1)
-                        case JsonMessage.type.Response:
+                        case JSONMESSAGE_RESPONSE:
                             ; do nothing
                         default:
                             error := request.createErrorResponse(JsonRpc.ErrorCode.InvalidRequest, "invalid request")
@@ -322,10 +329,17 @@ class JsonRpcSocket
 
     sendMessageBlocking(message, timeout := 30000)
     {
-        reply := JsonRpcServiceReply()
-        pr := Promise((resolve, reject) => (reply := this.sendMessage(message), reply.resolve := resolve))
-        pr.await2(timeout)
-        return reply.response
+        try
+        {
+            reply := JsonRpcServiceReply()
+            pr := Promise((resolve, reject) => (reply := this.sendMessage(message), reply.resolve := resolve))
+            pr.await2(timeout)
+            return reply.response
+        }
+        catch
+        {
+            return JsonMessage.createErrorResponse(JsonRpc.ErrorCode.TimeoutError, "timeout error")
+        }
     }
 
     invokeRemoteMethod(method, params*)
@@ -378,7 +392,7 @@ class JsonRpcSocket
                     if(this.socket.replys.has(recvJsonObj['id']))
                     {
                         id := recvJsonObj['id']
-                        this.socket.replys[id].response.type := JsonMessage.type.Response
+                        this.socket.replys[id].response.type := JSONMESSAGE_RESPONSE
                         this.socket.replys[id].response.result := recvJsonObj['result']
                         this.socket.replys[id].response.id := recvJsonObj['id']
 
