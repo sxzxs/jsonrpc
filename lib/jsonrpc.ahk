@@ -290,9 +290,9 @@ class JsonRpcServiceReply
 
 class JsonRpcSocket
 {
-    __New(device) 
+    __New(device, port?) 
     {
-        this.device := JsonRpcSocket.ClientSocket(device)
+        this.device := JsonRpcSocket.ClientSocket(device, port?? unset)
         this.device.setSocket(this)
         this.replys := Map()
         this.currentResolve := ''
